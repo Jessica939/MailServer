@@ -1,0 +1,8 @@
+From: admin@example.com
+To: alice@example.com
+Subject: Local SMTP test
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+MIME-Version: 1.0
+
+Hello from the MailServer SMTP test client.
