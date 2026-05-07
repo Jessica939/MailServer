@@ -46,7 +46,6 @@ python3 test_smtp_client.py --host 127.0.0.1 --port 8025 --starttls --username a
 python3 test_pop3_client.py --host 127.0.0.1 --port 8110 --username alice --password alice123 --message 1 --save-dir downloaded_emails
 ```
 
-以下是一个完整的测试报告 README，总结了之前对邮件客户端（SMTP 发送、POP3 接收、MIME 解析、SSL 加密、附件处理）所进行的所有测试。该文档可直接用于项目提交。
 
 ---
 
