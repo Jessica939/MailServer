@@ -61,6 +61,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Enable implicit SSL/TLS for SMTP connections",
     )
+    parser.add_argument(
+        "--no-auth-require-tls",
+        action="store_true",
+        help="Allow AUTH over unencrypted connections (insecure)",
+    )
     return parser.parse_args()
 
 
@@ -69,11 +74,37 @@ def main() -> None:
     init_database()
 
     ssl_context = create_server_ssl_context() if args.ssl else None
+
+    def auth_callback(mechanism: str, login: bytes, password: bytes) -> bool:
+        try:
+            username = login.decode("utf-8", errors="ignore")
+        except Exception:
+            username = str(login)
+        # Accept either 'user' or 'user@domain' by taking local part
+        if "@" in username:
+            username = username.split("@", 1)[0]
+        try:
+            pwd = password.decode("utf-8", errors="ignore")
+        except Exception:
+            pwd = str(password)
+
+        with sqlite3.connect(DB_PATH) as conn:
+            row = conn.execute(
+                "SELECT 1 FROM users WHERE username = ? AND password = ?",
+                (username, pwd),
+            ).fetchone()
+        return row is not None
+
+    # By default the SMTP implementation requires TLS for AUTH; allow disabling with flag
+    auth_require_tls = not args.no_auth_require_tls
+
     controller = Controller(
         MailStoreHandler(),
         hostname=args.host,
         port=args.port,
         ssl_context=ssl_context,
+        auth_callback=auth_callback,
+        auth_require_tls=auth_require_tls,
     )
     controller.start()
     protocol = "SMTPS" if args.ssl else "SMTP"
@@ -81,6 +112,10 @@ def main() -> None:
     if args.ssl:
         print(f"Using certificate: {CERT_PATH}", flush=True)
         print(f"Using private key: {KEY_PATH}", flush=True)
+    if auth_require_tls:
+        print("AUTH: TLS required for authentication", flush=True)
+    else:
+        print("AUTH: Allowing authentication over plaintext (insecure)", flush=True)
     print("Press Ctrl+C to stop.", flush=True)
 
     try:
