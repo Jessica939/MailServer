@@ -115,6 +115,7 @@ class POP3Session:
         return self.username is not None
 
     def handle_user(self, username: str) -> None:
+        username = normalize_username(username)
         if not username:
             self.send_line("-ERR missing username")
             return
@@ -242,7 +243,15 @@ class POP3Server:
         self.should_stop.set()
 
 
+def normalize_username(raw_username: str) -> str:
+    username = raw_username.strip()
+    if "@" in username:
+        username = username.split("@", 1)[0]
+    return username
+
+
 def user_exists(username: str) -> bool:
+    username = normalize_username(username)
     with sqlite3.connect(DB_PATH) as conn:
         row = conn.execute(
             "SELECT 1 FROM users WHERE username = ?",
@@ -252,6 +261,7 @@ def user_exists(username: str) -> bool:
 
 
 def verify_user(username: str, password: str) -> bool:
+    username = normalize_username(username)
     with sqlite3.connect(DB_PATH) as conn:
         row = conn.execute(
             """
