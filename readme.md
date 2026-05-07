@@ -15,7 +15,7 @@ MailServer — 教学用简易邮件服务器与客户端
 - [test_smtp_client.py](test_smtp_client.py) — SMTP 测试客户端（支持 HTML、附件、STARTTLS/SSL、登录）
 - [test_pop3_client.py](test_pop3_client.py) — POP3 测试客户端（支持保存为 `.eml`）
 
-今天的更新 / 功能补充（要点）
+更新 / 功能补充（要点）
 - 在 `smtp_server.py` 中添加了基于 SQLite 的 `AUTH` 校验回调，支持 `AUTH PLAIN` 与 `AUTH LOGIN`，并可通过命令行参数控制是否强制在 TLS 后允许 AUTH（默认要求 TLS）。
 - 增强 `test_smtp_client.py`：支持 `--html` 添加 HTML 替代体、`--attach` 添加附件（逗号分隔）、`--starttls` 启用 STARTTLS、`--ssl` 隐式 SSL、`--username/--password` 登录并发送邮件。
 - 增强 `test_pop3_client.py`：在检索后将邮件原始行保存为 `.eml` 文件（可通过 `--save-dir` 指定目录），仍支持隐式 SSL。
@@ -45,12 +45,3 @@ python3 test_smtp_client.py --host 127.0.0.1 --port 8025 --starttls --username a
 ```
 python3 test_pop3_client.py --host 127.0.0.1 --port 8110 --username alice --password alice123 --message 1 --save-dir downloaded_emails
 ```
-
-我已做的其它工程性工作
-- 对 `test_smtp_client.py`、`test_pop3_client.py` 与 `smtp_server.py` 做了语法检查（`python3 -m py_compile`），无语法错误。
-
-如需我继续：
-- 我可以把 README 中的这些示例和说明进一步格式化并补充更多运行端到端的演示步骤（包括如何生成自签名证书、如何查看 `mail_data/` 中的 `.eml`）。
-
----
-（README 已更新，参见本仓库的 [readme.md](readme.md)）
