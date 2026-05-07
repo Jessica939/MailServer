@@ -44,9 +44,24 @@ def init_database() -> None:
         )
 
         conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS attachments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email_id INTEGER NOT NULL,
+                filename TEXT NOT NULL,
+                mime_type TEXT,
+                file_path TEXT NOT NULL,
+                size INTEGER NOT NULL,
+                FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE CASCADE
+            )
+            """
+        )
+
+        conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_emails_receiver ON emails (receiver)"
         )
         conn.execute("CREATE INDEX IF NOT EXISTS idx_emails_sender ON emails (sender)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_attachments_email_id ON attachments (email_id)")
 
         conn.executemany(
             """
