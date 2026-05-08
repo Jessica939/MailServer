@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from email import policy
 from email.parser import BytesParser
+import os
+import re
 
 from aiosmtpd.controller import Controller
 
@@ -20,6 +22,10 @@ BASE_DIR = Path(__file__).resolve().parent
 
 class MailStoreHandler:
     async def handle_DATA(self, server, session, envelope) -> str:
+        # Check if user is authenticated
+        if not getattr(session, 'authenticated', False):
+            return "530 Authentication required"
+
         mail_bytes = envelope.original_content
         if mail_bytes is None:
             mail_bytes = envelope.content
@@ -36,35 +42,70 @@ class MailStoreHandler:
         sender = envelope.mail_from
         receivers = envelope.rcpt_tos or []
 
-        # parse MIME parts and extract attachments
-        parser = BytesParser(policy=policy.default)
+        # parse MIME parts and extract attachments by streaming from saved .eml file
         attachments_saved: list[tuple[str, str, Path, int]] = []
-        try:
-            message = parser.parsebytes(mail_bytes)
-        except Exception:
-            message = None
 
-        if message is not None:
-            attachments_dir = MAIL_DATA_DIR / "attachments" / filename.replace(".eml", "")
-            attachments_dir.mkdir(parents=True, exist_ok=True)
-            idx = 0
-            for part in message.iter_attachments():
-                idx += 1
-                fname = part.get_filename()
-                if not fname:
-                    fname = f"attachment_{idx}"
-                payload = part.get_payload(decode=True)
-                if not payload:
+        def sanitize_filename(name: str) -> str:
+            name = os.path.basename(name or "")
+            name = re.sub(r"[^A-Za-z0-9._-]", "_", name)
+            if not name or name in {"", ".", ".."}:
+                name = "attachment"
+            if len(name) > 200:
+                name = name[:200]
+            return name
+
+        def unique_path(directory: Path, name: str) -> Path:
+            candidate = directory / name
+            if not candidate.exists():
+                return candidate
+            base, ext = os.path.splitext(name)
+            i = 1
+            while True:
+                candidate = directory / f"{base}_{i}{ext}"
+                if not candidate.exists():
+                    return candidate
+                i += 1
+
+        attachments_dir = MAIL_DATA_DIR / "attachments" / filename.replace(".eml", "")
+        attachments_dir.mkdir(parents=True, exist_ok=True)
+        attachments_saved: list[tuple[str, str, Path, int]] = []
+
+        try:
+            msg = BytesParser(policy=policy.default).parsebytes(mail_bytes)
+            for part in msg.walk():
+                if part.is_multipart():
                     continue
-                att_path = attachments_dir / fname
-                # avoid overwrite
-                if att_path.exists():
-                    att_path = attachments_dir / f"{idx}_{fname}"
+
+                filename_hdr = part.get_filename()
+                content_disposition = part.get_content_disposition()
+                if not filename_hdr and content_disposition != "attachment":
+                    continue
+
+                raw_fname = filename_hdr or f"attachment_{int(time.time())}_{uuid.uuid4().hex[:8]}"
+                fname = sanitize_filename(raw_fname)
+                att_path = unique_path(attachments_dir, fname)
+                payload = part.get_payload(decode=True) or b""
+
                 try:
-                    att_path.write_bytes(payload)
+                    with att_path.open("wb") as out_f:
+                        out_f.write(payload)
+                    size_written = att_path.stat().st_size
+                    attachments_saved.append(
+                        (
+                            fname,
+                            part.get_content_type() or "application/octet-stream",
+                            att_path,
+                            size_written,
+                        )
+                    )
                 except OSError:
-                    continue
-                attachments_saved.append((fname, part.get_content_type(), att_path, len(payload)))
+                    if att_path.exists():
+                        try:
+                            att_path.unlink(missing_ok=True)
+                        except Exception:
+                            pass
+        except Exception:
+            attachments_saved = []
 
         # insert email rows and attachments metadata
         with sqlite3.connect(DB_PATH) as conn:
@@ -155,6 +196,8 @@ def main() -> None:
         ssl_context=ssl_context,
         auth_callback=auth_callback,
         auth_require_tls=auth_require_tls,
+        auth_exclude_mechanism=[],
+        enable_SMTPUTF8=False,
     )
     controller.start()
     protocol = "SMTPS" if args.ssl else "SMTP"

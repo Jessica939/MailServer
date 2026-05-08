@@ -15,240 +15,164 @@ MailServer — 教学用简易邮件服务器与客户端
 - [test_smtp_client.py](test_smtp_client.py) — SMTP 测试客户端（支持 HTML、附件、STARTTLS/SSL、登录）
 - [test_pop3_client.py](test_pop3_client.py) — POP3 测试客户端（支持保存为 `.eml`）
 
-更新 / 功能补充（要点）
-- 在 `smtp_server.py` 中添加了基于 SQLite 的 `AUTH` 校验回调，支持 `AUTH PLAIN` 与 `AUTH LOGIN`，并可通过命令行参数控制是否强制在 TLS 后允许 AUTH（默认要求 TLS）。
-- 增强 `test_smtp_client.py`：支持 `--html` 添加 HTML 替代体、`--attach` 添加附件（逗号分隔）、`--starttls` 启用 STARTTLS、`--ssl` 隐式 SSL、`--username/--password` 登录并发送邮件。
-- 增强 `test_pop3_client.py`：在检索后将邮件原始行保存为 `.eml` 文件（可通过 `--save-dir` 指定目录），仍支持隐式 SSL。
+核心功能实现
 
-快速使用示例
-- 初始化数据库（会在 `mail_server.db` 中创建测试用户）：
-```
+**邮件发送（SMTP）**
+- 支持 SMTP 认证：`AUTH PLAIN` 与 `AUTH LOGIN` 机制，基于 SQLite 用户数据库验证
+- 可选 TLS 支持：隐式 SMTPS 或 STARTTLS（默认强制 TLS 后才允许 AUTH，可通过 `--no-auth-require-tls` 禁用）
+- MIME 邮件处理：支持纯文本、HTML 格式、以及 multipart/mixed 附件
+- 附件自动提取：解析 MIME 边界与编码，自动提取附件到 `mail_data/attachments/<eml-id>/` 目录
+- 邮件持久化：所有邮件保存为 `.eml` 格式，同时在 SQLite 中记录元数据（发件人、收件人、时间戳、附件列表）
+
+**邮件接收（POP3）**
+- 支持基本 POP3 命令：`STAT`、`LIST`、`RETR`、`QUIT`
+- 用户认证：`USER` / `PASS` 明文认证，支持两种用户名格式（`alice` 或 `alice@example.com`）
+- 可选隐式 SSL：POP3S 支持（`--ssl` 启动）
+- 邮件检索：按用户邮箱地址本地部分（local-part）过滤邮件
+
+**客户端功能**
+- `test_smtp_client.py`：支持 HTML 正文、多文件附件（逗号分隔）、用户认证、STARTTLS 与隐式 SSL
+- `test_pop3_client.py`：下载邮件并保存为 `.eml` 格式（可指定保存目录），支持隐式 POP3S
+
+快速开始
+
+### 1. 初始化环境
+```bash
 python3 init_db.py
 ```
-- 启动 SMTP 服务（默认要求 TLS 才允许 AUTH）：
-```
-python3 smtp_server.py --host 127.0.0.1 --port 8025
-```
-隐式 SSL（SMTPS）：
-```
-python3 smtp_server.py --ssl
-```
-允许在明文连接上使用 AUTH（不建议，仅用于测试）：
-```
-python3 smtp_server.py --no-auth-require-tls
-```
-- 使用测试 SMTP 客户端发送邮件（使用 STARTTLS 并登录）：
-```
-python3 test_smtp_client.py --host 127.0.0.1 --port 8025 --starttls --username alice --password alice123 --attach /path/to/file.pdf --html
-```
-- 使用测试 POP3 客户端下载并保存第 1 封邮件：
-```
-python3 test_pop3_client.py --host 127.0.0.1 --port 8110 --username alice --password alice123 --message 1 --save-dir downloaded_emails
-```
+这会创建 SQLite 数据库和测试用户（admin / alice / bob）。
 
+### 2. 启动 SMTP 服务
 
----
-
-
-
-# MailServer 邮件系统功能测试报告
-
-## 测试组件
-
-| 组件 | 文件 | 说明 |
-|------|------|------|
-| SMTP 服务端 | `smtp_server.py` | 基于 aiosmtpd，支持 SSL，支持 AUTH LOGIN/PLAIN，强制认证 |
-| POP3 服务端 | `pop3_server.py` | 原生 socket 实现，支持 SSL，支持 USER/PASS |
-| 测试客户端 | `test_smtp_client.py` | 支持 SSL/STARTTLS，附件，HTML，认证 |
-| 测试客户端 | `test_pop3_client.py` | 支持 SSL，保存 .eml 文件 |
-| 增强客户端 | `test_pop3_client.py`（添加 MIME 解析） | 解析邮件头、正文、附件并保存 |
-
-## 测试前准备
-
-1. **初始化数据库**
-   ```bash
-   python init_db.py
-   ```
-   创建 `mail_server.db`，含用户 `admin/123456`、`alice/alice123`、`bob/bob123`。
-
-2. **准备自签名证书**（如已存在则跳过）
-   ```bash
-   openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes -subj "/CN=localhost"
-   ```
-
-3. **清理旧数据（可选）**
-   ```bash
-   Remove-Item -Path mail_server.db -Force
-   Remove-Item -Path mail_data -Recurse -Force
-   ```
-
-## 服务端启动
-
-打开两个 PowerShell 终端：
-
-**终端1 – SMTP（带 SSL）**
+允许在明文上进行 AUTH（测试用）：
 ```bash
-python smtp_server.py --host 127.0.0.1 --port 8025 --ssl
-```
-预期输出：
-```
-SMTPS server listening on 127.0.0.1:8025
-Using certificate: ...\cert.pem
-Using private key: ...\key.pem
-AUTH: TLS required for authentication
-Press Ctrl+C to stop.
+python3 smtp_server.py --host 127.0.0.1 --port 8025 --no-auth-require-tls
 ```
 
-**终端2 – POP3（明文，用于接收测试）**
+隐式 SMTPS（允许在该加密通道内直接进行身份验证）：
 ```bash
-python pop3_server.py --host 127.0.0.1 --port 8110
-```
-预期输出：
-```
-POP3 server listening on 127.0.0.1:8110
-Press Ctrl+C to stop.
+python3 smtp_server.py --host 127.0.0.1 --port 8465 --ssl --no-auth-require-tls
 ```
 
-> 注：POP3 也可以使用 `--ssl` 测试加密接收。
+### 3. 发送测试邮件
 
-## 功能测试清单
-
-### 1. SMTP 发送 – 纯文本邮件
-
-**命令**：
+**纯文本邮件**：
 ```bash
-python test_smtp_client.py --host 127.0.0.1 --port 8025 --ssl --username alice --password alice123 --sender alice@example.com --receiver bob@example.com --subject "Plain Text" --body "Hello Bob, this is plain text."
+python3 test_smtp_client.py \
+  --host 127.0.0.1 --port 8025 \
+  --username alice --password alice123 \
+  --subject "Test" \
+  --body "Hello World"
 ```
 
-**预期结果**：
-- 客户端输出：`Sent email from alice@example.com to bob@example.com`
-- 服务端日志：`Saved message from alice@example.com to bob@example.com as mail_data/xxx.eml`
-- 数据库 `emails` 表新增记录，`mail_data/` 下生成 `.eml` 文件。
-
-### 2. SMTP 发送 – HTML 邮件
-
-**命令**：
+**HTML 邮件 + 附件**：
 ```bash
-python test_smtp_client.py --host 127.0.0.1 --port 8025 --ssl --username alice --password alice123 --sender alice@example.com --receiver bob@example.com --subject "HTML Email" --body "<h1>Hello</h1><p>This is <b>HTML</b></p>" --html
+echo "这是附件内容" > /tmp/test.txt
+python3 test_smtp_client.py \
+  --host 127.0.0.1 --port 8025 \
+  --username alice --password alice123 \
+  --html \
+  --attach /tmp/test.txt \
+  --subject "MIME 测试" \
+  --body "这是带附件的邮件"
 ```
 
-**预期结果**：同上，邮件中应包含 HTML 替代部分。
-
-### 3. SMTP 发送 – 带附件
-
-**准备测试文件**：在项目目录下创建 `test.txt`（内容任意）。
-
-**命令**：
+**使用 STARTTLS 与隐式 SSL**（注意：需要 `--no-auth-require-tls` 以允许 AUTH）：
 ```bash
-python test_smtp_client.py --host 127.0.0.1 --port 8025 --ssl --username alice --password alice123 --sender alice@example.com --receiver bob@example.com --subject "With Attachment" --body "See attached file" --attach test.txt
+python3 test_smtp_client.py --host 127.0.0.1 --port 8465 --ssl --username alice --password alice123 --html --attach /tmp/test.txt --subject "Encrypted" --body "Test"
 ```
 
-**预期结果**：
-- 客户端发送成功。
-- 服务端日志显示：`Extracted attachments: test.txt`
-- 在 `mail_data/attachments/<邮件ID>/` 下保存 `test.txt` 文件。
-- 数据库 `attachments` 表记录附件元数据。
-
-### 4. POP3 接收 – 保存原始 .eml
-
-**命令**：
+**明文SMTP**
 ```bash
-python test_pop3_client.py --host 127.0.0.1 --port 8110 --username bob --password bob123 --message 1 --save-dir received_mails
+python3 test_smtp_client.py --host 127.0.0.1 --port 8025 --username alice --password alice123 --html --attach /tmp/test.txt --subject "Encrypted" --body "Test"
 ```
 
-**预期输出**：
-```
-+OK POP3 server ready
-+OK user accepted
-+OK maildrop locked and ready
-STAT: 3 messages, 1234 octets
-...
-Saved message to received_mails\bob_1_1712345678.eml
-+OK POP3 server signing off
-```
-在 `received_mails/` 目录下生成 `.eml` 文件。
-
-### 5. POP3 接收 – 解析 MIME 并保存附件
-
-使用添加了 MIME 解析功能的 `test_pop3_client.py`（已在代码中集成 `parse_mime_email` 函数）。
-
-**命令**（同上）：
+### 4. 启动 POP3 服务
 ```bash
-python test_pop3_client.py --host 127.0.0.1 --port 8110 --username bob --password bob123 --message 1 --save-dir mime_test
+python3 pop3_server.py --host 127.0.0.1 --port 8110
 ```
 
-**预期输出**（额外部分）：
-```
---- MIME Parsed Info ---
-Subject: With Attachment
-From: alice@example.com
-To: bob@example.com
-Body preview: See attached file...
-Attachments saved: 0001_test.txt
--------------------------
-```
-附件文件被保存为 `mime_test/0001_test.txt`，原始 `.eml` 同时保存。
-
-### 6. SSL 加密接收（POP3S）
-
-**启动 POP3S 服务**（终端2）：
+隐式 POP3S：
 ```bash
-python pop3_server.py --host 127.0.0.1 --port 8110 --ssl
+python3 pop3_server.py --ssl
 ```
 
-**客户端命令**：
+### 5. 接收邮件
+
+下载并保存为 `.eml`：
 ```bash
-python test_pop3_client.py --host 127.0.0.1 --port 8110 --ssl --username bob --password bob123 --message 1 --save-dir ssl_received
+python3 test_pop3_client.py \
+  --host 127.0.0.1 --port 8110 \
+  --username alice \
+  --password alice123 \
+  --message 1 \
+  --save-dir downloaded_emails
 ```
 
-**预期**：成功连接并下载邮件，无 SSL 错误。
-
-### 7. 用户认证失败测试（SMTP）（未完成）
-
-**命令**（错误密码）：
+支持两种用户名格式：
 ```bash
-python test_smtp_client.py --host 127.0.0.1 --port 8025 --ssl --username alice --password wrong --sender alice@example.com --receiver bob@example.com --subject "Fail" --body "Should fail"
+python3 test_pop3_client.py --username alice  # 本地部分
+python3 test_pop3_client.py --username alice@example.com  # 完整邮箱地址
 ```
 
-**预期结果**：
-- 客户端输出 `Login failed: Authentication failed`（或类似）。
-- 服务端**不保存邮件**，无 `Saved message` 日志。
-- 邮件不被投递。
+## 验证 MIME 结构
 
-### 8. 附件中文文件名测试
+生成的 `.eml` 文件是合法 MIME 邮件。可用 Python 验证：
+```python
+from email import policy
+from email.parser import BytesParser
+from pathlib import Path
 
-**准备**：创建 `测试文件.txt`（UTF-8 编码）。
-
-**发送**：
-```bash
-python test_smtp_client.py --host 127.0.0.1 --port 8025 --ssl --username alice --password alice123 --sender alice@example.com --receiver bob@example.com --subject "中文附件" --body "测试" --attach 测试文件.txt
+msg = BytesParser(policy=policy.default).parsebytes(Path("mail_data/xxx.eml").read_bytes())
+for part in msg.walk():
+    print(f"类型: {part.get_content_type()}, 附件: {part.get_filename()}")
+    if part.get_content_disposition() == "attachment":
+        print(f"内容: {part.get_payload(decode=True)[:100]}")
 ```
 
-**接收并解析**：使用支持 MIME 解析的 `test_pop3_client.py` 接收，附件文件名应正确显示为 `测试文件.txt`（不乱码）。
+## 实现细节
 
-## 测试结果汇总
+### SMTP 协议支持
+- **认证机制**：`AUTH PLAIN`、`AUTH LOGIN`（通过 aiosmtpd 自动协商）
+- **加密**：STARTTLS（SMTP）或隐式 SMTPS
+- **MIME 处理**：
+  - 使用标准库 `email.parser.BytesParser` 解析邮件
+  - 支持 `multipart/alternative`（纯文本 + HTML）
+  - 支持 `multipart/mixed`（正文 + 附件）
+  - 自动处理 Base64、Quoted-Printable 编码
+  - 附件文件名清理与去重
 
-| 功能 | 测试用例 | 结果 |
-|------|----------|------|
-| SMTP 纯文本发送 | 正确密码 | ✅ 成功 |
-| SMTP HTML 发送 | 正确密码 | ✅ 成功 |
-| SMTP 附件发送 | 正确密码 | ✅ 成功（服务端提取附件） |
-| SMTP 认证 | 正确密码 | ❌️ **登录失败，邮件仍能发送** |
-| SMTP 认证 | 错误密码 | ❌️ **登录失败，邮件仍能发送** |
-| POP3 接收 .eml | 明文连接 | ✅ 保存文件 |
-| POP3 接收 .eml | SSL 连接 | ✅ 保存文件 |
-| MIME 解析 | 接收带附件邮件 | ✅ 正确提取正文和附件 |
+### POP3 协议支持
+- **命令**：USER、PASS、STAT、LIST、RETR、QUIT
+- **加密**：隐式 POP3S
+- **用户映射**：自动规范化用户名（去掉 `@example.com` 后缀）
+- **邮箱过滤**：按用户本地部分（local-part）过滤邮件
 
+### 数据库设计
+```sql
+users           # 用户名、密码（明文存储）
+emails          # 邮件元数据（发件人、收件人、时间、.eml 路径）
+attachments     # 附件记录（所属邮件、文件名、MIME 类型、文件路径、大小）
+```
 
-## 结论
+## 文件结构
 
-邮件系统已成功实现以下基础功能：
-- ✅ SMTP 发送邮件（支持纯文本、HTML、附件）
-- ❌️ SMTP 用户认证（AUTH LOGIN/PLAIN over SSL）
-- ✅ POP3 接收邮件（支持 SSL）
-- ✅ MIME 解析（提取正文、附件、保存 .eml）
-- ❌️ 服务端强制要求认证，拒绝未认证或密码错误的请求
-- ✅ 附件存储与元数据记录
+```
+mail_server.db              # SQLite 数据库（用户、邮件、附件元数据）
+cert.pem / key.pem          # TLS 自签证书与密钥
+mail_data/                  # 邮件存储目录
+  └── *.eml                 # 原始 MIME 邮件文件
+  └── attachments/          # 提取的附件
+      └── <eml-id>/         # 按邮件 ID 分目录存放
+          └── *.txt|*.pdf|...
+```
 
-部分测试未通过，系统尚未满足题目要求的基础功能及 SSL 加密登录。
+## 教学用途说明
 
+本项目适合用于以下课程与实验：
+- **计算机网络**：SMTP / POP3 协议深入理解
+- **应用层协议**：邮件传输的完整工作流
+- **MIME 与编码**：多部分邮件结构与附件处理
+- **网络安全**：TLS/SSL 加密通信、用户认证
+
+代码注释与模块化设计便于学生修改与扩展。

@@ -7,6 +7,9 @@ from email.message import EmailMessage
 from pathlib import Path
 from typing import Iterable
 
+from email.utils import formatdate
+
+
 from tls_config import create_test_client_ssl_context
 
 
@@ -55,6 +58,7 @@ def main() -> None:
     message["From"] = args.sender
     message["To"] = args.receiver
     message["Subject"] = args.subject
+    message['Date'] = formatdate()
     message.set_content(args.body)
     if args.html:
         html_body = f"<html><body><p>{args.body}</p></body></html>"
@@ -67,11 +71,13 @@ def main() -> None:
     if args.ssl:
         ssl_context = create_test_client_ssl_context()
         smtp = smtplib.SMTP_SSL(args.host, args.port, context=ssl_context, timeout=10)
+        smtp.ehlo()  # Send EHLO after SSL connection
     else:
         smtp = smtplib.SMTP(args.host, args.port, timeout=10)
 
     with smtp:
-        smtp.ehlo()
+        if not args.ssl:  # Only send initial EHLO for non-SSL connections
+            smtp.ehlo()
         if args.starttls:
             ctx = create_test_client_ssl_context()
             smtp.starttls(context=ctx)
