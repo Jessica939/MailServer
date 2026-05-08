@@ -1,0 +1,34 @@
+From: admin@example.com
+To: alice@example.com
+Subject: MIME =?utf-8?b?5rWL6K+V?=
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="===============0746149919464498531=="
+
+--===============0746149919464498531==
+Content-Type: multipart/alternative;
+ boundary="===============1199289074538883316=="
+
+--===============1199289074538883316==
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 8bit
+
+这是一封带附件和 HTML 的测试邮件
+
+--===============1199289074538883316==
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: 8bit
+MIME-Version: 1.0
+
+<html><body><p>这是一封带附件和 HTML 的测试邮件</p></body></html>
+
+--===============1199289074538883316==--
+
+--===============0746149919464498531==
+Content-Type: text/plain
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="test-attachment.txt"
+MIME-Version: 1.0
+
+6L+Z5piv6ZmE5Lu25YaF5a65Cg==
+
+--===============0746149919464498531==--
