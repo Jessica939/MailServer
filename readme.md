@@ -53,13 +53,6 @@ python3 test_pop3_client.py --host 127.0.0.1 --port 8110 --username alice --pass
 
 # MailServer 邮件系统功能测试报告
 
-## 测试环境
-
-- **操作系统**：Windows 11 / PowerShell
-- **Python 版本**：3.12
-- **项目目录**：`C:\Users\15040\Desktop\cnfinal_work\MailServer`
-- **依赖**：`aiosmtpd==1.4.6`，其他使用 Python 标准库
-
 ## 测试组件
 
 | 组件 | 文件 | 说明 |
