@@ -49,9 +49,9 @@ python3 init_db.py
 python3 smtp_server.py --host 127.0.0.1 --port 8025 --no-auth-require-tls
 ```
 
-隐式 SMTPS（默认强制 TLS 后才允许 AUTH）：
+隐式 SMTPS（允许在该加密通道内直接进行身份验证）：
 ```bash
-python3 smtp_server.py --host 127.0.0.1 --port 8465 --ssl
+python3 smtp_server.py --host 127.0.0.1 --port 8465 --ssl --no-auth-require-tls
 ```
 
 ### 3. 发送测试邮件
@@ -77,14 +77,14 @@ python3 test_smtp_client.py \
   --body "这是带附件的邮件"
 ```
 
-**使用 STARTTLS 与隐式 SSL**：
+**使用 STARTTLS 与隐式 SSL**（注意：需要 `--no-auth-require-tls` 以允许 AUTH）：
 ```bash
-python3 test_smtp_client.py \
-  --host 127.0.0.1 --port 8025 \
-  --starttls \
-  --username alice --password alice123 \
-  --html --attach /path/to/file \
-  --subject "Encrypted" --body "Test"
+python3 test_smtp_client.py --host 127.0.0.1 --port 8465 --ssl --username alice --password alice123 --html --attach /tmp/test.txt --subject "Encrypted" --body "Test"
+```
+
+**明文SMTP**
+```bash
+python3 test_smtp_client.py --host 127.0.0.1 --port 8025 --username alice --password alice123 --html --attach /tmp/test.txt --subject "Encrypted" --body "Test"
 ```
 
 ### 4. 启动 POP3 服务

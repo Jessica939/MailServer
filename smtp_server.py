@@ -22,6 +22,10 @@ BASE_DIR = Path(__file__).resolve().parent
 
 class MailStoreHandler:
     async def handle_DATA(self, server, session, envelope) -> str:
+        # Check if user is authenticated
+        if not getattr(session, 'authenticated', False):
+            return "530 Authentication required"
+
         mail_bytes = envelope.original_content
         if mail_bytes is None:
             mail_bytes = envelope.content
@@ -193,6 +197,7 @@ def main() -> None:
         auth_callback=auth_callback,
         auth_require_tls=auth_require_tls,
         auth_exclude_mechanism=[],
+        enable_SMTPUTF8=False,
     )
     controller.start()
     protocol = "SMTPS" if args.ssl else "SMTP"
