@@ -37,6 +37,7 @@ class POP3Session:
         self.stream = None
         self.pending_user: str | None = None
         self.username: str | None = None
+        self.spam_mode = False
         self.running = True
 
     def run(self) -> None:
@@ -115,18 +116,20 @@ class POP3Session:
         return self.username is not None
 
     def handle_user(self, username: str) -> None:
-        username = normalize_username(username)
-        if not username:
+        clean_username, spam_mode = parse_username_with_flags(username)
+        if not clean_username:
             self.send_line("-ERR missing username")
             return
 
-        if user_exists(username):
-            self.pending_user = username
+        if user_exists(clean_username):
+            self.pending_user = clean_username
+            self.spam_mode = spam_mode
             self.username = None
             self.send_line("+OK user accepted")
         else:
             self.pending_user = None
             self.username = None
+            self.spam_mode = False
             self.send_line("-ERR no such user")
 
     def handle_pass(self, password: str) -> None:
@@ -184,7 +187,7 @@ class POP3Session:
     def load_mailbox(self) -> list[MailItem]:
         if self.username is None:
             return []
-        return load_mailbox(self.username)
+        return load_mailbox(self.username, self.spam_mode)
 
     def send_line(self, line: str) -> None:
         self.write_bytes(line.encode("utf-8") + CRLF)
@@ -250,6 +253,17 @@ def normalize_username(raw_username: str) -> str:
     return username
 
 
+def parse_username_with_flags(raw_username: str) -> tuple[str, bool]:
+    username = normalize_username(raw_username)
+    spam_mode = False
+
+    if username.endswith("+spam"):
+        username = username[: -len("+spam")]
+        spam_mode = True
+
+    return username, spam_mode
+
+
 def user_exists(username: str) -> bool:
     username = normalize_username(username)
     with sqlite3.connect(DB_PATH) as conn:
@@ -274,20 +288,24 @@ def verify_user(username: str, password: str) -> bool:
     return row is not None
 
 
-def load_mailbox(username: str) -> list[MailItem]:
+def load_mailbox(username: str, spam_mode: bool = False) -> list[MailItem]:
+    is_spam_value = 1 if spam_mode else 0
     with sqlite3.connect(DB_PATH) as conn:
         rows = conn.execute(
             """
             SELECT id, file_path
             FROM emails
-            WHERE lower(receiver) = lower(?)
-               OR (
-                    instr(receiver, '@') > 1
-                    AND lower(substr(receiver, 1, instr(receiver, '@') - 1)) = lower(?)
-               )
+            WHERE (
+                    lower(receiver) = lower(?)
+                    OR (
+                        instr(receiver, '@') > 1
+                        AND lower(substr(receiver, 1, instr(receiver, '@') - 1)) = lower(?)
+                    )
+                  )
+              AND COALESCE(is_spam, 0) = ?
             ORDER BY id
             """,
-            (username, username),
+            (username, username, is_spam_value),
         ).fetchall()
 
     mailbox: list[MailItem] = []

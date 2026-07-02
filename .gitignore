@@ -1,0 +1,29 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Runtime data
+mail_server.db
+mail_data/
+downloaded_emails/
+test.txt
+test2.txt
+
+# Trained model and datasets
+bayes_model.json
+corpus/
+corpus_*/
+trec06c/
+*.tgz
+*.zip
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.bak
+debug_*.py

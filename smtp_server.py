@@ -12,7 +12,9 @@ import os
 import re
 
 from aiosmtpd.controller import Controller
+from bs4 import BeautifulSoup
 
+from classifier import NaiveBayesClassifier
 from init_db import DB_PATH, MAIL_DATA_DIR, init_database
 from tls_config import CERT_PATH, KEY_PATH, create_server_ssl_context
 
@@ -21,6 +23,9 @@ BASE_DIR = Path(__file__).resolve().parent
 
 
 class MailStoreHandler:
+    def __init__(self, classifier: NaiveBayesClassifier | None = None) -> None:
+        self.classifier = classifier
+
     async def handle_DATA(self, server, session, envelope) -> str:
         # Check if user is authenticated
         if not getattr(session, 'authenticated', False):
@@ -107,16 +112,18 @@ class MailStoreHandler:
         except Exception:
             attachments_saved = []
 
+        is_spam = self.classify_message(msg)
+
         # insert email rows and attachments metadata
         with sqlite3.connect(DB_PATH) as conn:
             cur = conn.cursor()
             for receiver in receivers:
                 cur.execute(
                     """
-                    INSERT INTO emails (sender, receiver, timestamp, file_path)
-                    VALUES (?, ?, ?, ?)
+                    INSERT INTO emails (sender, receiver, timestamp, file_path, is_spam)
+                    VALUES (?, ?, ?, ?, ?)
                     """,
-                    (sender, receiver, timestamp, relative_path),
+                    (sender, receiver, timestamp, relative_path, is_spam),
                 )
                 email_id = cur.lastrowid
                 for fname, mime_type, att_path, size in attachments_saved:
@@ -142,6 +149,42 @@ class MailStoreHandler:
             print(f"Extracted attachments: {saved_names}", flush=True)
         return "250 Message accepted for delivery"
 
+    def classify_message(self, msg) -> int:
+        if self.classifier is None:
+            return 0
+
+        try:
+            text_parts: list[str] = []
+            for part in msg.walk():
+                content_type = part.get_content_type()
+                if content_type not in ("text/plain", "text/html"):
+                    continue
+
+                payload = part.get_payload(decode=True) or b""
+                charset = part.get_content_charset() or "utf-8"
+                try:
+                    text = payload.decode(charset, errors="ignore")
+                except LookupError:
+                    text = payload.decode("utf-8", errors="ignore")
+
+                if content_type == "text/html":
+                    text = BeautifulSoup(text, "html.parser").get_text(separator=" ")
+                text_parts.append(text)
+
+            body_text = "\n".join(text_parts).strip()
+            if not body_text:
+                return 0
+
+            label, score = self.classifier.predict(body_text)
+            print(f"[classifier] label={label} score={score:+.2f}", flush=True)
+            return 1 if label == "spam" else 0
+        except Exception as exc:
+            print(
+                f"[classifier] failed: {type(exc).__name__}: {exc}",
+                flush=True,
+            )
+            return 0
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the local SMTP mail server.")
@@ -164,6 +207,7 @@ def main() -> None:
     args = parse_args()
     init_database()
 
+    classifier = load_classifier()
     ssl_context = create_server_ssl_context() if args.ssl else None
 
     def auth_callback(mechanism: str, login: bytes, password: bytes) -> bool:
@@ -190,7 +234,7 @@ def main() -> None:
     auth_require_tls = not args.no_auth_require_tls
 
     controller = Controller(
-        MailStoreHandler(),
+        MailStoreHandler(classifier=classifier),
         hostname=args.host,
         port=args.port,
         ssl_context=ssl_context,
@@ -218,6 +262,31 @@ def main() -> None:
         print("\nStopping SMTP server...", flush=True)
     finally:
         controller.stop()
+
+
+def load_classifier() -> NaiveBayesClassifier | None:
+    model_path = BASE_DIR / "bayes_model.json"
+    if not model_path.exists():
+        print(f"No classifier model at {model_path}. Spam classification disabled.", flush=True)
+        return None
+
+    try:
+        classifier = NaiveBayesClassifier()
+        classifier.load(model_path)
+    except Exception as exc:
+        print(
+            f"Failed to load classifier: {type(exc).__name__}: {exc}. "
+            "Continuing without spam classification.",
+            flush=True,
+        )
+        return None
+
+    print(
+        "Loaded spam classifier: "
+        f"spam_count={classifier.spam_count}, ham_count={classifier.ham_count}",
+        flush=True,
+    )
+    return classifier
 
 
 if __name__ == "__main__":

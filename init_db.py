@@ -38,10 +38,12 @@ def init_database() -> None:
                 sender TEXT NOT NULL,
                 receiver TEXT NOT NULL,
                 timestamp TEXT NOT NULL,
-                file_path TEXT NOT NULL
+                file_path TEXT NOT NULL,
+                is_spam INTEGER NOT NULL DEFAULT 0
             )
             """
         )
+        ensure_email_columns(conn)
 
         conn.execute(
             """
@@ -70,6 +72,15 @@ def init_database() -> None:
             """,
             TEST_USERS,
         )
+
+
+def ensure_email_columns(conn: sqlite3.Connection) -> None:
+    columns = {
+        row[1]
+        for row in conn.execute("PRAGMA table_info(emails)").fetchall()
+    }
+    if "is_spam" not in columns:
+        conn.execute("ALTER TABLE emails ADD COLUMN is_spam INTEGER NOT NULL DEFAULT 0")
 
 
 if __name__ == "__main__":
